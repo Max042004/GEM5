@@ -126,6 +126,10 @@ class IssueQue : public SimObject
     const int replayQsize = 32;
     const int scheduleToExecDelay;
     const bool deferNewEnqueueSelection;
+    /** Issue cap across ports, 0 for none (see IssueQue.maxIssuePerCycle) */
+    const int maxIssuePerCycle;
+    /** The execution unit of each port, for maxIssuePerCycle */
+    std::vector<int> portUnit;
     const std::string iqname;
     std::vector<std::bitset<Num_OpClasses>> portFuDescs;
     std::vector<FUDesc*> fuDescs;
@@ -272,6 +276,13 @@ class IssueQue : public SimObject
     void issueToFu();
     void wakeUpDependents(const DynInstPtr& inst, bool speculative);
     void selectInst();
+    /** selectInst with maxIssuePerCycle: oldest eligible first, one
+     * instruction per unit */
+    void selectInstCapped();
+    /** The next selectable instruction of port pi, or readyQ->end() */
+    ReadyQue::iterator capCandidate(int pi);
+    /** Reserve the ports of the selected instruction and queue its issue */
+    void capSelect(int pi, ReadyQue::iterator it);
     void scheduleInst();
     void addIfReady(const DynInstPtr& inst);
     void cancel(const DynInstPtr& inst);

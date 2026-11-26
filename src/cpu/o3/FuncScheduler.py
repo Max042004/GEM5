@@ -90,6 +90,12 @@ class IssueQue(SimObject):
     vectorSplitUnits = Param.Unsigned(
         2, "Number of independent vector load/store split units per direction")
     oports = VectorParam.IssuePort("")
+    maxIssuePerCycle = Param.Int(0, "Issue at most this many instructions "
+        "per cycle across the ports, the oldest eligible first (0: one per "
+        "port, each port selecting on its own)")
+    portUnits = VectorParam.Int([], "With maxIssuePerCycle, the execution "
+        "unit of each port: ports of one unit issue at most one instruction "
+        "per cycle between them (empty: a unit per port)")
     sel = Param.BaseSelector(BaseSelector(), "Selector for this IQ")
     smtIQWatermark = Param.Int(0, "SMT IQ watermark per thread")
 

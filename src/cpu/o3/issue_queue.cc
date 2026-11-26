@@ -350,6 +350,7 @@ IssueQue::IssueQue(const IssueQueParams& params)
       iqsize(params.size),
       scheduleToExecDelay(params.scheduleToExecDelay),
       deferNewEnqueueSelection(params.deferNewEnqueueSelection),
+      maxIssuePerCycle(params.maxIssuePerCycle),
       iqname(params.name),
       vectorSplitUnits(params.vectorSplitUnits),
       nextVectorLoadSplitUnit(0),
@@ -376,6 +377,14 @@ IssueQue::IssueQue(const IssueQueParams& params)
     }
 
     portBusy.resize(outports, 0);
+
+    portUnit.resize(outports);
+    panic_if(!params.portUnits.empty() &&
+             params.portUnits.size() != (size_t)outports,
+             "%s: portUnits needs one unit per port\n", iqname);
+    for (int i = 0; i < outports; i++) {
+        portUnit[i] = params.portUnits.empty() ? i : params.portUnits[i];
+    }
 
     intRdRfTPI.resize(outports);
     fpRdRfTPI.resize(outports);
@@ -1210,10 +1219,108 @@ IssueQue::cancel(const DynInstPtr& inst)
     iqstats->canceledInst++;
 }
 
+ReadyQue::iterator
+IssueQue::capCandidate(int pi)
+{
+    auto readyQ = readyQs[pi];
+    selector->begin(readyQ);
+    for (auto it = selector->select(readyQ->begin(), pi); it != readyQ->end();
+         it = selector->select(it, pi)) {
+        auto& inst = *it;
+        if (inst->canceled()) {
+            inst->clearInReadyQ();
+            it = readyQ->erase(it);
+            continue;
+        }
+        if (deferNewEnqueueSelection &&
+            std::find(enqueuedThisCycle.begin(), enqueuedThisCycle.end(),
+                      inst->seqNum) != enqueuedThisCycle.end()) {
+            ++it;
+            continue;
+        }
+        uint32_t lat = scheduler->getOutputDistance(inst);
+        uint64_t busy_bit = (lat > 63 ? -1 : (1llu << lat));
+        if (!(portBusy[pi] & busy_bit)) {
+            return it;
+        }
+        iqstats->portBusy[pi]++;
+        ++it;
+    }
+    return readyQ->end();
+}
+
+void
+IssueQue::capSelect(int pi, ReadyQue::iterator it)
+{
+    auto readyQ = readyQs[pi];
+    auto inst = *it;
+    DPRINTF(Schedule, "[sn %ld] was selected on port %d\n", inst->seqNum, pi);
+    for (int i = 0; i < inst->numDestRegs(); i++) {
+        auto pdst = inst->renamedDestIdx(i);
+        if (pdst->isFixedMapping()) [[unlikely]]
+            continue;
+        if (pdst->isIntReg() && intWrRfTPI[pi].size() > i) {
+            auto rfTypePortId = intWrRfTPI[pi][i];
+            scheduler->useRfWrPort(inst, pdst, rfTypePortId.first,
+                                   rfTypePortId.second);
+        }
+    }
+    for (int i = 0; i < inst->numSrcRegs(); i++) {
+        PhysRegIdPtr psrc = inst->renamedSrcIdx(i);
+        if (psrc->isFixedMapping())
+            continue;
+        if (psrc->isIntReg() && intRdRfTPI[pi].size() > i) {
+            auto rfTypePortId = intRdRfTPI[pi][i];
+            scheduler->useRfRdPort(inst, psrc, rfTypePortId.first,
+                                   rfTypePortId.second);
+        } else if (psrc->isFloatReg() && fpRdRfTPI[pi].size() > i) {
+            auto rfTypePortId = fpRdRfTPI[pi][i];
+            scheduler->useRfRdPort(inst, psrc, rfTypePortId.first,
+                                   rfTypePortId.second);
+        }
+    }
+    scheduler->fpSelected(inst, pi);
+    selectQ.push_back({static_cast<uint32_t>(pi), inst, inst->fpWakeAttempt});
+    inst->clearInReadyQ();
+    readyQ->erase(it);
+}
+
+void
+IssueQue::selectInstCapped()
+{
+    // Oldest eligible first: each round takes the oldest of the candidates
+    // of the ports whose unit has not issued this cycle.
+    std::vector<bool> unitUsed(outports + *std::max_element(
+        portUnit.begin(), portUnit.end()) + 1, false);
+    for (int n = 0; n < maxIssuePerCycle; n++) {
+        int best_pi = -1;
+        ReadyQue::iterator best_it;
+        for (int pi = 0; pi < outports; pi++) {
+            if (unitUsed[portUnit[pi]])
+                continue;
+            auto it = capCandidate(pi);
+            if (it == readyQs[pi]->end())
+                continue;
+            if (best_pi < 0 || (*it)->seqNum < (*best_it)->seqNum) {
+                best_pi = pi;
+                best_it = it;
+            }
+        }
+        if (best_pi < 0)
+            break;
+        unitUsed[portUnit[best_pi]] = true;
+        capSelect(best_pi, best_it);
+    }
+}
+
 void
 IssueQue::selectInst()
 {
     selectQ.clear();
+    if (maxIssuePerCycle > 0) {
+        selectInstCapped();
+        return;
+    }
     for (int pi = 0; pi < outports; pi++) {
         auto readyQ = readyQs[pi];
         for (auto it = readyQ->begin(); it != readyQ->end(); ++it) {

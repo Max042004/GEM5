@@ -207,8 +207,7 @@ AheadBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr startA
                            });
     processed_entries.erase(it, processed_entries.end());
 
-    Addr abtb_end = (startAddr + predictWidth) &
-                    ~mask(floorLog2(predictWidth) - 1);
+    Addr abtb_end = predBlockEnd(startAddr, predictWidth);
     it = std::remove_if(processed_entries.begin(), processed_entries.end(),
                         [abtb_end](const BTBEntry &e) {
                             return e.branch.pc >= abtb_end;
@@ -694,8 +693,7 @@ AheadBTB::updateUsingS3Pred(FullBTBPrediction &s3Pred, const Addr previousPC)
     }
 
     Addr end_inst_pc = s3Pred.isTaken() ? s3Pred.getTakenEntry().branch.pc :
-                            (s3Pred.bbStart + predictWidth) &
-                                ~mask(floorLog2(predictWidth) - 1);
+                            predBlockEnd(s3Pred.bbStart, predictWidth);
     auto old_entries = processOldEntries(state.lastPredEntries, end_inst_pc);
 
     auto entries_to_update = collectEntriesToUpdateFromS3Pred(old_entries, s3Pred);

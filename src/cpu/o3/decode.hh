@@ -300,6 +300,9 @@ class Decode
 
     /** The width of decode, in instructions. */
     unsigned decodeWidth;
+
+    /** Redirect at decode (BaseO3CPU.decodeBranchRedirect) */
+    const bool decodeBranchRedirect;
     /** Distinct SMT threads allowed to decode in one cycle. */
     unsigned numPreDispatchThreads;
     /** Aggregate Decode->Rename link capacity. */

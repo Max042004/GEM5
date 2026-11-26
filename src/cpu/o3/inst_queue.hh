@@ -478,6 +478,9 @@ class InstructionQueue
 
     bool enableReplayBasedMDP;
 
+    /** Operand-dependent IntDiv latency (BaseO3CPU.semanticIntDivLatency) */
+    bool semanticIntDivLatency;
+
     /** The sequence number of the squashed instruction. */
     InstSeqNum squashedSeqNum[MaxThreads];
     SquashInfo    squashInfo;

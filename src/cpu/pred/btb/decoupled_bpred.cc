@@ -47,6 +47,8 @@ DecoupledBPUWithBTB::consumeFetchTarget(unsigned fetched_inst_num, ThreadID tid)
     ftq.finishTarget(tid);
 }
 
+bool alignedPredBlockEnd = false;
+
 DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
     : BPredUnit(p),
 
@@ -77,6 +79,7 @@ DecoupledBPUWithBTB::DecoupledBPUWithBTB(const DecoupledBPUWithBTBParams &p)
                    ? std::make_unique<BPUProfiler>(name(), maxInstsNum)
                    : nullptr)
 {
+    alignedPredBlockEnd = p.alignedBlockEnd;
     panic_if(numPredictingThreads == 0 ||
              numPredictingThreads > numThreads ||
              numPredictingThreads > 2,

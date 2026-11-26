@@ -645,6 +645,7 @@ LSQ::LSQ(CPU *cpu_ptr, IEW *iew_ptr, const BaseO3CPUParams &params)
       dcacheBankIndexBits(numBank ? floorLog2(numBank) : 0),
       dcacheSetBankBits(params.DcacheSetBits + dcacheBankIndexBits),
       _enableLdMissReplay(params.EnableLdMissReplay),
+      _loadBypassAtS2(params.loadBypassAtS2),
       _enablePipeNukeCheck(params.EnablePipeNukeCheck),
       _enableReplayBasedMDP(params.EnableReplayBasedMDP),
       _storeWbStage(params.StoreWbStage),

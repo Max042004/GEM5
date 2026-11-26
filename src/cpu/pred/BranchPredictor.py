@@ -1223,6 +1223,8 @@ class DecoupledBPUWithBTB(BranchPredictor):
     maxHistLen = Param.Unsigned(970, "The length of history")
 
     predictWidth = Param.Unsigned(64, "Maximum range in bytes that a single prediction can cover")
+    alignedBlockEnd = Param.Bool(False, "End each prediction block at the next "
+        "predictWidth-aligned boundary instead of half-aligned")
     numStages = Param.Unsigned(3, "Number of prediction stages (S1, S2, S3)")
     ubtb = Param.UBTB(UBTB(), "UBTB predictor")
     abtb = Param.AheadBTB(AheadBTB(), "ABTB predictor")

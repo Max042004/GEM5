@@ -209,7 +209,7 @@ MBTB::processEntries(const std::vector<TickedBTBEntry>& entries, Addr startAddr)
     processed_entries.erase(it, processed_entries.end());
 
     // remove entries after the range of mBTB
-    Addr mbtb_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+    Addr mbtb_end = predBlockEnd(startAddr, predictWidth);
     it = std::remove_if(processed_entries.begin(), processed_entries.end(),
                         [mbtb_end](const BTBEntry &e) {
                             return e.branch.pc >= mbtb_end;
@@ -251,7 +251,7 @@ MBTB::processEntriesNoSideEffect(const std::vector<TickedBTBEntry>& entries,
                            });
     processed_entries.erase(it, processed_entries.end());
 
-    Addr mbtb_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+    Addr mbtb_end = predBlockEnd(startAddr, predictWidth);
     it = std::remove_if(processed_entries.begin(), processed_entries.end(),
                         [mbtb_end](const BTBEntry &e) {
                             return e.branch.pc >= mbtb_end;

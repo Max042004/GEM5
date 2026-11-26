@@ -150,6 +150,7 @@ InstructionQueue::InstructionQueue(CPU *cpu_ptr, IEW *iew_ptr,
       totalWidth(8),
       commitToIEWDelay(params.commitToIEWDelay),
       enableReplayBasedMDP(params.EnableReplayBasedMDP),
+      semanticIntDivLatency(params.semanticIntDivLatency),
       iqStats(cpu, totalWidth),
       iqIOStats(cpu)
 {
@@ -597,6 +598,8 @@ InstructionQueue::execLatencyCheck(const DynInstPtr& inst, uint32_t& op_latency)
     int delay_;
     switch (inst->opClass()) {
         case OpClass::IntDiv: {
+            if (!semanticIntDivLatency)
+                return false;
             // Producers may have written these operands before committing.
             rs1 = cpu->peekReg(inst->extRenamedSrcIdx(0));
             rs2 = cpu->peekReg(inst->extRenamedSrcIdx(1));

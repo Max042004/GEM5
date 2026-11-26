@@ -1366,6 +1366,7 @@ class LSQ
     RequestPort &getDataPort() { return dcachePort; }
 
     bool enableLdMissReplay() const { return _enableLdMissReplay; }
+    bool loadBypassAtS2() const { return _loadBypassAtS2; }
     bool enablePipeNukeCheck() const { return _enablePipeNukeCheck; }
     bool enableReplayBasedMDP() const { return _enableReplayBasedMDP; }
     int storeWbStage() const { return _storeWbStage; }
@@ -1548,6 +1549,8 @@ class LSQ
     const unsigned dcacheSetBankBits;
 
     bool _enableLdMissReplay;
+    /** BaseO3CPU.loadBypassAtS2 */
+    const bool _loadBypassAtS2;
     bool _enablePipeNukeCheck;
     bool _enableReplayBasedMDP;
 

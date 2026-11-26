@@ -171,6 +171,16 @@ class BaseO3CPU(BaseCPU):
     commitToDecodeDelay = Param.Cycles(1, "Commit to decode delay")
     fetchToDecodeDelay = Param.Cycles(3, "Fetch to decode delay")
     decodeWidth = Param.Unsigned(6, "Decode width")
+    loadBypassAtS2 = Param.Bool(False, "Put a load's result on the bypass "
+        "network when load pipe S2 completes it (a hit or a full forward), "
+        "one cycle before its S3 writeback")
+    semanticIntDivLatency = Param.Bool(True, "Time an integer divide by "
+        "its operands as XiangShan's SRT16 divider does; when false the "
+        "IntDiv opLat of the functional unit applies")
+    decodeBranchRedirect = Param.Bool(True, "Redirect fetch at decode for "
+        "a direct jump or a predicted-taken direct branch with a wrong "
+        "target and for a return the BPU missed; when false they resolve "
+        "at execute")
     enableDecodeFusionCompaction = Param.Bool(
         False, "Compact fused Decode output across fetch bundles (single-thread, non-trace)")
     decodeFusionBufferSize = Param.Unsigned(

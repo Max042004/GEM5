@@ -1705,6 +1705,12 @@ LSQUnit::loadDoRecvData(const DynInstPtr &inst)
         }
     }
 
+    // The register now holds the data of a hit or a full forward: let a
+    // consumer that checks the bypass network in this cycle use it.
+    if (lsq->loadBypassAtS2() && inst->isExecuted() && inst->fault == NoFault) {
+        iewStage->getScheduler()->bypassWriteback(inst);
+    }
+
     return fault;
 }
 

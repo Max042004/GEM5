@@ -497,7 +497,8 @@ DecoupledBPUWithBTB::commitPredWrongSource(
     bool onlyDirectionWrong = actuallyTaken != entry.predTaken;
     int s1SourceBucket = 0;
 
-    assert(s1PredSource < mbtbid);
+    // A zero-delay MBTB (numDelay 0) predicts in S1 itself.
+    assert(s1PredSource < mbtbid || mbtb->getDelay() == 0);
     if (s1PredSource == ubtbid) {
         dbpBtbStats.s1PredWrongUbtb++;
         s1SourceBucket = 1;

@@ -8,6 +8,8 @@
 #include <boost/dynamic_bitset.hpp>
 
 // #include "arch/generic/pcstate.hh"
+#include "base/bitfield.hh"
+#include "base/intmath.hh"
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
 #include "cpu/pred/btb/branch_outcome.hh"
@@ -19,6 +21,22 @@ namespace gem5 {
 namespace branch_prediction {
 
 namespace btb_pred {
+
+/**
+ * End of a prediction block of `width` bytes starting at `start`.  XS-GEM5
+ * aligns it to half the width; with alignedPredBlockEnd (the BPU parameter
+ * alignedBlockEnd) it is the next width-aligned boundary, so a block never
+ * crosses one: the fetch packets of NyanCore are the aligned 8-byte pairs.
+ */
+extern bool alignedPredBlockEnd;
+
+inline Addr
+predBlockEnd(Addr start, Addr width)
+{
+    if (alignedPredBlockEnd)
+        return (start & ~(Addr)(width - 1)) + width;
+    return (start + width) & ~mask(floorLog2(width) - 1);
+}
 
 inline uint8_t
 foldAsidHash16To4(uint16_t asid)
@@ -529,7 +547,7 @@ struct FullBTBPrediction
 
     Addr getFallThrough(Addr predictWidth) {
         // max 64 byte block, 32 byte aligned
-        return (bbStart + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+        return predBlockEnd(bbStart, predictWidth);
     }
 
     Addr getTarget(Addr predictWidth) {

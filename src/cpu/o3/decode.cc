@@ -81,6 +81,7 @@ Decode::Decode(CPU *_cpu, const BaseO3CPUParams &params)
       fetchToDecodeDelay(params.fetchToDecodeDelay),
       decodeToFetchDelay(params.decodeToFetchDelay),
       decodeWidth(params.decodeWidth),
+      decodeBranchRedirect(params.decodeBranchRedirect),
       numPreDispatchThreads(params.smtNumPreDispatchThreads),
       aggregateDecodeWidth(decodeWidth * numPreDispatchThreads),
       numThreads(params.numThreads),
@@ -1348,7 +1349,7 @@ Decode::processInstControl(const DynInstPtr &inst, ThreadID tid)
     //（hasTraceCtrlFlowChange），则交由 trap/wrong-path 逻辑处理，不在 decode
     // 再做一次基于静态分支目标的校验，避免把 cond->trap 误统计为普通分支
     // mispredict，或在这里产生“错误”的 redirect。
-    if (!inst->isPredecodeChecked() &&
+    if (decodeBranchRedirect && !inst->isPredecodeChecked() &&
         !(cpu->isTraceMode() && inst->hasTraceCtrlFlowChange()) &&
         inst->isDirectCtrl() &&
         (inst->isUncondCtrl() || inst->readPredTaken()))
@@ -1408,7 +1409,7 @@ Decode::processInstControl(const DynInstPtr &inst, ThreadID tid)
         }
     }
     // unpredicted return can make use of ras results to get earlier resteer
-    if (!inst->isPredecodeChecked() &&
+    if (decodeBranchRedirect && !inst->isPredecodeChecked() &&
         inst->isReturn() && !inst->isNonSpeculative() &&
         !inst->readPredTaken()) {
         std::unique_ptr<PCStateBase> target;

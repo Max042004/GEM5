@@ -141,7 +141,7 @@ void
 UBTB::PredStatistics(const TickedUBTBEntry entry, Addr startAddr)
 {
     if (entry.valid) {
-        Addr mbtb_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+        Addr mbtb_end = predBlockEnd(startAddr, predictWidth);
         assert(entry.branch.pc >= startAddr && entry.branch.pc < mbtb_end);
         DPRINTF(UBTB, "UBTB: lookup hit: \n");
         ubtbStats.predHit += 1;
@@ -213,7 +213,7 @@ UBTB::lookup(Addr startAddr, ThreadID tid, uint8_t asidHash)
     }
 
     Addr current_tag = getTag(startAddr, asidHash);
-    Addr block_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+    Addr block_end = predBlockEnd(startAddr, predictWidth);
 
     DPRINTF(UBTB, "UBTB: Doing tag comparison for tag %#lx\n", current_tag);
 
@@ -253,8 +253,7 @@ UBTB::lookupNoSideEffect(Addr startAddr, ThreadID tid,
     }
 
     Addr current_tag = getTag(startAddr, asidHash);
-    Addr block_end = (startAddr + predictWidth) &
-        ~mask(floorLog2(predictWidth) - 1);
+    Addr block_end = predBlockEnd(startAddr, predictWidth);
     auto range_begin = ubtb.begin() + partitionBegin(numEntries, tid);
     auto range_end = ubtb.begin() + partitionEnd(numEntries, tid);
     auto it = std::find_if(range_begin, range_end,
@@ -393,7 +392,7 @@ UBTB::update(
     BTBEntry takenEntry = actualTaken ? BTBEntry(actualBranch) : BTBEntry();
     auto startAddr = stream.getRealStartPC();
     Addr oldtag = getTag(startAddr, stream.asidHash);
-    Addr block_end = (startAddr + predictWidth) & ~mask(floorLog2(predictWidth) - 1);
+    Addr block_end = predBlockEnd(startAddr, predictWidth);
 
     auto [rangeBegin, rangeEnd] = threadRange(stream.tid);
     UBTBIter oldEntryIter = ubtb.end();
