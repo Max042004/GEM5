@@ -65,6 +65,8 @@ typedef uint32_t MachInst;
 
 BitUnion64(ExtMachInst)
     Bitfield<63>        compressed;
+    // Decode as RV32 (RiscvISA.rv32), set by the decoder
+    Bitfield<62>        rv32;
     // More bits for vector extension
     Bitfield<40>        vill;
     SubBitUnion(vtype8, 39, 32) // exclude vill

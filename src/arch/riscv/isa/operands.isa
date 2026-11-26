@@ -56,6 +56,19 @@ let {{
         def regId(self):
             return f'(({self.reg_spec}) == 0) ? RegId() : ' \
                    f'RegId({self.reg_class}, {self.reg_spec})'
+
+        # RV32 mode keeps each integer register sign-extended from bit 31.
+        # (No doubled braces here: they would end this let block.)
+        @overrideInOperand
+        def makeWrite(self):
+            lb, rb = chr(123), chr(125)
+            return (lb + '\n'
+                '    RegVal final_val = RiscvISA::rvSext(%s);\n'
+                '    xc->setRegOperand(this, %d, final_val);\n'
+                '    if (traceData) ' + lb + '\n'
+                '        traceData->setData(final_val);\n'
+                '    ' + rb + '\n' + rb + '\n') % (
+                    self.base_name, self.dest_reg_idx)
 }};
 
 def operands {{

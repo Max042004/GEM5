@@ -43,6 +43,7 @@
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/regs/renameable_misc.hh"
 #include "arch/riscv/regs/vector.hh"
+#include "arch/riscv/rv32.hh"
 #include "base/bitfield.hh"
 #include "base/compiler.hh"
 #include "base/logging.hh"
@@ -329,13 +330,17 @@ matrixWriteBlob(ThreadContext *tc, Addr addr, const void *src, size_t size)
 
     [MISCREG_STIMECMP]      = "STIMECMP",
     [MISCREG_VSTIMECMP]     = "VSTIMECMP",
+    [MISCREG_MSTATUSH]      = "MSTATUSH",
     [MISCREG_FFLAGS_EXE]    = "FFLAGS_EXE",
 }};
 
 
 
+bool rv32Mode = false;
+
 ISA::ISA(const Params &p) : BaseISA(p)
 {
+    rv32Mode = p.rv32;
     _regClasses.emplace_back(IntRegClass, int_reg::NumRegs, debug::IntRegs, sizeof(RegVal));
     _regClasses.emplace_back(FloatRegClass, float_reg::NumRegs, debug::FloatRegs, sizeof(RegVal));
 
@@ -386,6 +391,11 @@ void ISA::clear()
 
     miscRegFile[MISCREG_PRV] = PRV_M;
     miscRegFile[MISCREG_ISA] = 0x80000000003411af;
+    if (rv32Mode) {
+        // MXL = 1 in bits 31:30 and, as upstream gem5, no RV32 hypervisor
+        miscRegFile[MISCREG_ISA] =
+            (1ULL << 30) | (0x3411af & ~(RegVal)ISA_EXT_H_MASK);
+    }
     miscRegFile[MISCREG_IMPID] = 0;
     miscRegFile[MISCREG_MIDELEG] = ((1 << 12) | (1 << 10) | (1 << 6) | (1 << 2));
     if (FullSystem) {
@@ -670,7 +680,9 @@ ISA::readMiscReg(int misc_reg)
         if (hpmCounterEnabled(MISCREG_CYCLE)) {
             DPRINTF(RiscvMisc, "Cycle counter at: %llu.\n",
                     tc->getCpuPtr()->curCycle());
-            return tc->getCpuPtr()->curCycle();
+            // RV32: mcycle is writable, as in upstream gem5 (an offset)
+            return tc->getCpuPtr()->curCycle() +
+                (rv32Mode ? miscRegFile[MISCREG_CYCLE] : 0);
         } else {
             return 0;
         }
@@ -696,7 +708,8 @@ ISA::readMiscReg(int misc_reg)
         if (hpmCounterEnabled(MISCREG_INSTRET)) {
             DPRINTF(RiscvMisc, "Instruction counter at: %llu.\n",
                     tc->getCpuPtr()->totalInsts());
-            return tc->getCpuPtr()->totalInsts();
+            return tc->getCpuPtr()->totalInsts() +
+                (rv32Mode ? miscRegFile[MISCREG_INSTRET] : 0);
         } else {
             return 0;
         }
@@ -798,7 +811,18 @@ ISA::setMiscReg(int misc_reg, RegVal val)
     if (misc_reg == MISCREG_IE) {
         DPRINTF(RiscvMisc, "setMiscReg: setting mstatus with %#lx\n", val);
     }
-    if (misc_reg >= MISCREG_CYCLE && misc_reg <= MISCREG_HPMCOUNTER31) {
+    if (rv32Mode && (misc_reg == MISCREG_CYCLE || misc_reg == MISCREG_INSTRET)) {
+        // As upstream gem5: the counter keeps running from the value
+        // written.  O3 applies the write when the CSR instruction commits,
+        // already counted, so the next instruction reads the value written.
+        if (misc_reg == MISCREG_CYCLE) {
+            setMiscRegNoEffect(MISCREG_CYCLE,
+                               val - tc->getCpuPtr()->curCycle());
+        } else {
+            setMiscRegNoEffect(MISCREG_INSTRET,
+                               val - tc->getCpuPtr()->totalInsts());
+        }
+    } else if (misc_reg >= MISCREG_CYCLE && misc_reg <= MISCREG_HPMCOUNTER31) {
         // Ignore writes to HPM counters for now
         if (misc_reg >= MISCREG_MHPMCOUNTER3 && misc_reg <= MISCREG_MHPMCOUNTER31) {
             warn("write to misc_reg %x val %lx but now write 0\n", misc_reg, val);
@@ -996,6 +1020,15 @@ ISA::setMiscReg(int misc_reg, RegVal val)
             }
             break;
           case MISCREG_SATP:
+            if (rv32Mode) {
+                // Sv32: MODE[31], nine ASID bits and PPN[21:20] read only
+                // zero (physical addresses are 32 bits), as on nyancore
+                RegVal v = val & 0xffcfffffULL;
+                if (readMiscRegNoEffect(misc_reg) != v)
+                    tc->getCpuPtr()->flushTLBs();
+                setMiscRegNoEffect(misc_reg, v);
+                break;
+            }
             {
                 // we only support bare and Sv39 mode; setting a different mode
                 // shall have no effect (see 4.1.12 in priv ISA manual)

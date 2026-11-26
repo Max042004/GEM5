@@ -34,6 +34,7 @@
 #include <string>
 
 #include "arch/riscv/insts/static_inst.hh"
+#include "arch/riscv/rv32.hh"
 #include "arch/riscv/regs/misc.hh"
 #include "cpu/exec_context.hh"
 #include "cpu/static_inst.hh"
@@ -117,25 +118,39 @@ class CSROp : public RiscvStaticInst
     RegIndex midx = 0;
     std::string csrName;
     uint64_t maskVal = 0;
+    /// An RV32 high counter CSR (mcycleh, ...): the high word of its counter
+    bool highHalf = false;
 
     /// Constructor
     CSROp(const char *mnem, ExtMachInst _extMachInst, OpClass __opClass)
         : RiscvStaticInst(mnem, _extMachInst, __opClass),
             csr(_extMachInst.funct12), uimm(_extMachInst.csrimm)
     {
-        auto csr_data_it = CSRData.find(csr);
-        if (csr_data_it == CSRData.end()) {
+        uint64_t lookup = csr;
+        if (rv32Mode && rv32HighAlias(csr)) {
+            lookup = rv32HighAlias(csr);
+            highHalf = true;
+        }
+        auto csr_data_it = CSRData.find(lookup);
+        if (csr_data_it == CSRData.end() ||
+            (rv32Mode && rv64OnlyCsr(csr)) ||
+            (!rv32Mode && csr == CSR_MSTATUSH)) {
             valid = false;
         } else {
             valid = true;
             midx = csr_data_it->second.physIndex;
             csrName = csr_data_it->second.name;
-            auto mask_it = CSRMasks.find(csr);
+            if (highHalf)
+                csrName += "h";
+            auto mask_it = CSRMasks.find(lookup);
             if (mask_it == CSRMasks.end())
                 maskVal = mask(64);
             else {
                 maskVal = mask_it->second;
             }
+            // RV32 misa has its MXL in bits 31:30
+            if (rv32Mode && lookup == CSR_MISA)
+                maskVal = (RegVal(3) << 30) | ISA_EXT_MASK;
         }
 
         // CSRRW/CSRRWI always write; set/clear forms require a nonzero

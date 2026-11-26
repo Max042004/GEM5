@@ -28,6 +28,7 @@
  */
 
 #include "arch/riscv/decoder.hh"
+#include "arch/riscv/rv32.hh"
 #include "arch/riscv/types.hh"
 #include "base/bitfield.hh"
 #include "debug/Decode.hh"
@@ -60,6 +61,7 @@ Decoder::moreBytes(const PCStateBase &pc, Addr fetchPC)
     // We assume fetchPC is always the actual instruction address,
     // so we can directly work with the instruction
     emi.instBits = inst;
+    emi.rv32 = rv32Mode;
 
     // For compressed instruction, we only need the lower 16 bits
     if (compressed(inst)) {
@@ -98,14 +100,15 @@ Decoder::decode(PCStateBase &_next_pc)
     auto &next_pc = _next_pc.as<PCState>();
 
     if (compressed(emi)) {
-        next_pc.npc(next_pc.instAddr() + sizeof(machInst) / 2);
+        next_pc.npc(rvAddr(next_pc.instAddr() + sizeof(machInst) / 2));
         next_pc.compressed(true);
     } else {
-        next_pc.npc(next_pc.instAddr() + sizeof(machInst));
+        next_pc.npc(rvAddr(next_pc.instAddr() + sizeof(machInst)));
         next_pc.compressed(false);
     }
 
     emi.vtype8 = this->machVtype & 0xff;
+    emi.rv32 = rv32Mode;
     StaticInstPtr inst = decode(emi, next_pc.instAddr());
     if (inst->isVectorConfig()) {
         auto vset = static_cast<VConfOp*>(inst.get());

@@ -120,6 +120,41 @@ class TLB : public BaseTLB
 
     Walker *walker;
 
+    /**
+     * Sv32 for RiscvISA.rv32.  The Sv39/Sv48 walker and L2 TLB keep their
+     * nine-bit levels and eight-byte PTEs, so an RV32 TLB is its own fully
+     * associative LRU array of 4 KiB translations instead (a megapage is
+     * cached one 4 KiB page at a time, as nyancore does), filled by a
+     * functional walk through the walker port.  A timing miss completes
+     * sv32MissLatency + sv32LevelLatency per PTE read cycles later.
+     */
+    struct Sv32Entry
+    {
+        bool valid = false;
+        Addr vpn = 0;       // va[31:12]
+        uint16_t asid = 0;
+        bool global = false;
+        bool mega = false;
+        uint32_t pte = 0;   // the leaf PTE
+        Addr ppn = 0;       // the physical 4 KiB page of vpn
+        uint64_t lru = 0;
+    };
+    std::vector<Sv32Entry> sv32Tlb;
+    uint64_t sv32Seq = 0;
+    Cycles sv32MissLatency;
+    Cycles sv32LevelLatency;
+
+    Fault sv32Translate(const RequestPtr &req, ThreadContext *tc,
+                        BaseMMU::Translation *translation,
+                        BaseMMU::Mode mode, bool &delayed, bool functional);
+    Fault sv32Walk(ThreadContext *tc, Addr vaddr, uint32_t satp,
+                   BaseMMU::Mode mode, Sv32Entry &entry, int &reads);
+    Fault sv32Check(const Sv32Entry &entry, ThreadContext *tc, Addr vaddr,
+                    BaseMMU::Mode mode, PrivilegeMode pmode);
+    Fault sv32Physical(const RequestPtr &req, ThreadContext *tc,
+                       BaseMMU::Mode mode);
+    void sv32Demap(Addr vaddr);
+
     uint64_t translationGen = 0;
 
     struct TlbStats : public statistics::Group
@@ -192,6 +227,9 @@ class TLB : public BaseTLB
         statistics::Formula hits;
         statistics::Formula misses;
         statistics::Formula accesses;
+        statistics::Scalar sv32Hits;
+        statistics::Scalar sv32Misses;
+        statistics::Scalar sv32WalkReads;
     } stats;
 
   public:

@@ -402,6 +402,10 @@ namespace RiscvISA
                                    const TlbEntry &refill_entry,
                                    uint8_t translateMode) const;
       public:
+        /** A functional physical access through the walker port (Sv32). */
+        void sendFunctionalPhys(PacketPtr pkt) { port.sendFunctional(pkt); }
+        RequestorID ptwRequestorId() const { return requestorId; }
+
         bool is_from_pre_req;
 
         Tick squashHandleTick;

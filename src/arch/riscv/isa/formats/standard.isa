@@ -198,7 +198,8 @@ def template BranchExecute {{
     %(class_name)s::branchTarget(const PCStateBase &branch_pc) const
     {
         auto &rpc = branch_pc.as<RiscvISA::PCState>();
-        return std::make_unique<PCState>(rpc.pc() + imm);
+        return std::make_unique<PCState>(
+            RiscvISA::rvAddr(rpc.pc() + imm));
     }
 
     std::string
@@ -309,7 +310,8 @@ def template JumpExecute {{
     %(class_name)s::branchTarget(ThreadContext *tc) const
     {
         PCStateBase *pc_ptr = tc->pcState().clone();
-        pc_ptr->as<PCState>().set((tc->getReg(srcRegIdx(0)) + imm) & ~0x1);
+        pc_ptr->as<PCState>().set(
+            RiscvISA::rvAddr((tc->getReg(srcRegIdx(0)) + imm) & ~0x1));
         return std::unique_ptr<PCStateBase>{pc_ptr};
     }
 
@@ -488,14 +490,39 @@ def template CSRExecute {{
         } else {
             olddata = xc->readMiscReg(effectiveMiscReg);
         }
+        // An RV32 high counter CSR reads the high word of its counter.
+        const RegVal counter_all = olddata;
+        if (highHalf) {
+            olddata >>= 32;
+        }
         auto olddata_all = olddata;
 
         olddata &= visibleMask;
+        // RV32 reads the SD bit of mstatus, sstatus and vsstatus at bit 31
+        const bool rv32_sd = RiscvISA::rv32Mode && !highHalf &&
+            (csr == CSR_MSTATUS || csr == CSR_SSTATUS ||
+             csr == CSR_VSSTATUS) && bits(olddata, 63);
         DPRINTF(RiscvMisc, "Reading CSR %s: %#x\n", csrName, olddata);
         data = olddata;
         bool write = false;
 
         %(code)s;
+
+        if (rv32_sd) {
+            Rd = Rd | (RegVal(1) << 31);
+        }
+
+        if (RiscvISA::rv32Mode) {
+            // An RV32 CSR write sets 32 bits: the high word of a counter,
+            // or the low word, which keeps the upper word of the RV64 CSR.
+            if (highHalf) {
+                data = ((RegVal)(uint32_t)data << 32) |
+                    bits(counter_all, 31, 0);
+                olddata = olddata_all = counter_all;
+            } else {
+                data = (uint32_t)data | (olddata & ~mask(32));
+            }
+        }
 
         // Suppress CSR writes for read-only CSRRS/CSRRC forms.
         if (!write && bits(machInst, 13, 12) != 1) {

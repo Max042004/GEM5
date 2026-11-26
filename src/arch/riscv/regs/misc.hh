@@ -286,6 +286,9 @@ enum MiscRegIndex
     MISCREG_VSTIMECMP,
     // vstimecmph rv32 only
 
+    // RV32 only (RiscvISA.rv32): a plain register, as in upstream gem5
+    MISCREG_MSTATUSH,
+
     NUM_MISCREGS,
     MISCREG_FFLAGS_EXE = NUM_MISCREGS,
     NUM_MISC_AND_HELPER_REGS
@@ -356,6 +359,7 @@ enum CSRIndex
     CSR_MIMPID = 0xF13,
     CSR_MHARTID = 0xF14,
     CSR_MSTATUS = 0x300,
+    CSR_MSTATUSH = 0x310,  // RV32 only
     CSR_MISA = 0x301,
     CSR_MEDELEG = 0x302,
     CSR_MIDELEG = 0x303,
@@ -635,6 +639,7 @@ const std::map<int, CSRMetadata> CSRData = {
     {CSR_MIMPID, {"mimpid", MISCREG_IMPID}},
     {CSR_MHARTID, {"mhartid", MISCREG_HARTID}},
     {CSR_MSTATUS, {"mstatus", MISCREG_STATUS}},
+    {CSR_MSTATUSH, {"mstatush", MISCREG_MSTATUSH}},  // RV32 only
     {CSR_MISA, {"misa", MISCREG_ISA}},
     {CSR_MEDELEG, {"medeleg", MISCREG_MEDELEG}},
     {CSR_MIDELEG, {"mideleg", MISCREG_MIDELEG}},

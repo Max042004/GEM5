@@ -39,8 +39,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from m5.objects.BaseISA import BaseISA
+from m5.params import *
 
 class RiscvISA(BaseISA):
     type = 'RiscvISA'
     cxx_class = 'gem5::RiscvISA::ISA'
     cxx_header = "arch/riscv/isa.hh"
+
+    rv32 = Param.Bool(False, "Run RV32 code: 32-bit registers (kept "
+        "sign-extended), addresses and CSRs on the RV64 decoder")

@@ -595,6 +595,49 @@ inline int32_t  _rvk_emu_sm3p1(int32_t rs1)
     return (int32_t) x;
 }
 
+// Zknh for RV32, from upstream gem5
+static inline int32_t  _rvk_emu_sha512sig0h(int32_t rs1, int32_t rs2)
+{
+    return  _rvk_emu_srl_32(rs1, 1) ^ _rvk_emu_srl_32(rs1, 7) ^
+            _rvk_emu_srl_32(rs1, 8) ^ _rvk_emu_sll_32(rs2, 31) ^
+            _rvk_emu_sll_32(rs2, 24);
+}
+
+static inline int32_t  _rvk_emu_sha512sig0l(int32_t rs1, int32_t rs2)
+{
+    return  _rvk_emu_srl_32(rs1, 1) ^ _rvk_emu_srl_32(rs1, 7) ^
+            _rvk_emu_srl_32(rs1, 8) ^ _rvk_emu_sll_32(rs2, 31) ^
+            _rvk_emu_sll_32(rs2, 25) ^ _rvk_emu_sll_32(rs2, 24);
+}
+
+static inline int32_t  _rvk_emu_sha512sig1h(int32_t rs1, int32_t rs2)
+{
+    return  _rvk_emu_sll_32(rs1, 3) ^ _rvk_emu_srl_32(rs1, 6) ^
+            _rvk_emu_srl_32(rs1, 19) ^ _rvk_emu_srl_32(rs2, 29) ^
+            _rvk_emu_sll_32(rs2, 13);
+}
+
+static inline int32_t  _rvk_emu_sha512sig1l(int32_t rs1, int32_t rs2)
+{
+    return  _rvk_emu_sll_32(rs1, 3) ^ _rvk_emu_srl_32(rs1, 6) ^
+            _rvk_emu_srl_32(rs1,19) ^ _rvk_emu_srl_32(rs2, 29) ^
+            _rvk_emu_sll_32(rs2, 26) ^ _rvk_emu_sll_32(rs2, 13);
+}
+
+static inline int32_t  _rvk_emu_sha512sum0r(int32_t rs1, int32_t rs2)
+{
+    return  _rvk_emu_sll_32(rs1, 25) ^ _rvk_emu_sll_32(rs1, 30) ^
+            _rvk_emu_srl_32(rs1, 28) ^ _rvk_emu_srl_32(rs2, 7) ^
+            _rvk_emu_srl_32(rs2, 2) ^ _rvk_emu_sll_32(rs2, 4);
+}
+
+static inline int32_t  _rvk_emu_sha512sum1r(int32_t rs1, int32_t rs2)
+{
+    return  _rvk_emu_sll_32(rs1, 23) ^ _rvk_emu_srl_32(rs1,14) ^
+            _rvk_emu_srl_32(rs1, 18) ^ _rvk_emu_srl_32(rs2, 9) ^
+            _rvk_emu_sll_32(rs2, 18) ^ _rvk_emu_sll_32(rs2, 14);
+}
+
 } // namespace RiscvISA
 } // namespace gem5
 

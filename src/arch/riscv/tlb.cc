@@ -44,13 +44,17 @@
 #include "arch/riscv/pma_checker.hh"
 #include "arch/riscv/pmp.hh"
 #include "arch/riscv/pra_constants.hh"
+#include "arch/riscv/rv32.hh"
 #include "arch/riscv/utility.hh"
 #include "base/cprintf.hh"
 #include "base/inifile.hh"
 #include "base/str.hh"
 #include "base/trace.hh"
 #include "base/types.hh"
+#include "cpu/base.hh"
 #include "cpu/thread_context.hh"
+#include "mem/packet_access.hh"
+#include "sim/system.hh"
 #include "debug/TLB.hh"
 #include "debug/TLBGPre.hh"
 #include "debug/TLBVerbose.hh"
@@ -157,6 +161,9 @@ TLB::TLB(const Params &p) :
     tlbL2Sp(l2TlbSpSize),
     forwardPre(forwardPreSize),backPre(32)
 {
+    sv32Tlb.resize(p.sv32_size);
+    sv32MissLatency = p.sv32_miss_latency;
+    sv32LevelLatency = p.sv32_level_latency;
     L2TLB_L1_MASK = (((uint64_t)1) << static_cast<int>(std::log2(l2TlbL1Size / L2L1LRU_NUM))) - 1;
     L2TLB_L0_MASK = (((uint64_t)1) << static_cast<int>(std::log2(l2TlbL0Size / L2L0LRU_NUM))) - 1;
 
@@ -1001,6 +1008,8 @@ void
 TLB::demapPage(Addr vpn, uint64_t asid)
 {
     DPRINTF(TLBGPre, "flush(vpn=%#x, asid=%#x)\n", vpn, asid);
+    if (rv32Mode)
+        sv32Demap(vpn);
     asid &= 0xFFFF;
 
     size_t i;
@@ -1179,6 +1188,8 @@ void
 TLB::flushAll()
 {
     size_t i;
+    for (auto &e : sv32Tlb)
+        e.valid = false;
     if (is_L1tlb)
         sharedL2()->advanceTranslationGen();
     if (isStage2 || isTheSharedL2)
@@ -2790,12 +2801,197 @@ TLB::isaMMUCheck(ThreadContext *tc, Addr vaddr, BaseMMU::Mode mode)
     return MMU_DIRECT;
 }
 
+namespace
+{
+
+Fault
+sv32AccessFault(Addr vaddr, BaseMMU::Mode mode)
+{
+    ExceptionCode code = mode == BaseMMU::Read ? ExceptionCode::LOAD_ACCESS :
+        mode == BaseMMU::Write ? ExceptionCode::STORE_ACCESS :
+        ExceptionCode::INST_ACCESS;
+    return std::make_shared<AddressFault>(vaddr, 0, code);
+}
+
+} // anonymous namespace
+
+/**
+ * The Sv32 walk of the privileged spec, with nyancore's choices where the
+ * spec leaves one: the A and D bits are not updated by hardware (Svade, the
+ * leaf check faults instead), a pointer with A, D or U set (reserved in a
+ * non-leaf PTE) is a page fault, and a pointer to a table beyond 32 bits of
+ * physical address is an access fault, like a PTE read PMP denies (page
+ * table reads are S-mode loads).
+ */
+Fault
+TLB::sv32Walk(ThreadContext *tc, Addr vaddr, uint32_t satp,
+              BaseMMU::Mode mode, Sv32Entry &entry, int &reads)
+{
+    Addr table = Addr(bits(satp, 21, 0)) << PageShift;
+    bool global = false;
+    for (int level = 1; level >= 0; level--) {
+        Addr pte_addr = table + bits(vaddr, 21 + 10 * level, 12 + 10 * level) * 4;
+        reads++;
+        stats.sv32WalkReads++;
+        RequestPtr pte_req = std::make_shared<Request>(
+            pte_addr, 4, Request::PHYSICAL, walker->ptwRequestorId());
+        if (!tc->getSystemPtr()->isMemAddr(pte_addr) ||
+            pmp->pmpCheck(pte_req, BaseMMU::Read, PrivilegeMode::PRV_S, tc) != NoFault)
+            return sv32AccessFault(vaddr, mode);
+        Packet pkt(pte_req, MemCmd::ReadReq);
+        pkt.allocate();
+        walker->sendFunctionalPhys(&pkt);
+        uint32_t raw = pkt.getLE<uint32_t>();
+        PTESv39 pte = raw;
+        DPRINTF(TLB, "Sv32 walk %#x level %d: PTE %#x at %#x\n", vaddr, level, raw, pte_addr);
+        global |= pte.g;
+        if (!pte.v || (!pte.r && pte.w))
+            return createPagefault(vaddr, 0, mode, false);
+        if (pte.r || pte.x) {
+            if (level == 1 && bits(raw, 19, 10))  // a misaligned megapage
+                return createPagefault(vaddr, 0, mode, false);
+            entry.valid = true;
+            entry.vpn = vaddr >> PageShift;
+            entry.global = global;
+            entry.mega = level == 1;
+            entry.pte = raw;
+            entry.ppn = level ? (Addr(bits(raw, 31, 20)) << 10) | bits(vaddr, 21, 12)
+                              : Addr(bits(raw, 31, 10));
+            return NoFault;
+        }
+        if (level == 0 || pte.a || pte.d || pte.u)
+            return createPagefault(vaddr, 0, mode, false);
+        if (bits(raw, 31, 30))
+            return sv32AccessFault(vaddr, mode);
+        table = Addr(bits(raw, 31, 10)) << PageShift;
+    }
+    panic("unreachable");
+}
+
+Fault
+TLB::sv32Check(const Sv32Entry &entry, ThreadContext *tc, Addr vaddr,
+               BaseMMU::Mode mode, PrivilegeMode pmode)
+{
+    PTESv39 pte = entry.pte;
+    STATUS status = tc->readMiscReg(MISCREG_STATUS);
+    bool ok = mode == BaseMMU::Execute ? pte.x :
+              mode == BaseMMU::Read ? (pte.r || (status.mxr && pte.x)) : pte.w;
+    if (ok && pmode == PrivilegeMode::PRV_U)
+        ok = pte.u;
+    else if (ok && pte.u)
+        ok = mode != BaseMMU::Execute && status.sum;
+    if (!ok || !pte.a || (mode == BaseMMU::Write && !pte.d))
+        return createPagefault(vaddr, 0, mode, false);
+    // the permissions passed, a page beyond 32 bits is an access fault
+    if (bits(entry.ppn, 21, 20))
+        return sv32AccessFault(vaddr, mode);
+    return NoFault;
+}
+
+Fault
+TLB::sv32Physical(const RequestPtr &req, ThreadContext *tc, BaseMMU::Mode mode)
+{
+    pma->check(req);
+    return pmp->pmpCheck(req, mode, getMemPriv(tc, mode), tc);
+}
+
+Fault
+TLB::sv32Translate(const RequestPtr &req, ThreadContext *tc,
+                   BaseMMU::Translation *translation, BaseMMU::Mode mode,
+                   bool &delayed, bool functional)
+{
+    delayed = false;
+    uint32_t satp = tc->readMiscReg(MISCREG_SATP);
+    PrivilegeMode pmode = getMemPriv(tc, mode);
+    Addr vaddr = (uint32_t)req->getVaddr();
+    if (pmode == PrivilegeMode::PRV_M || !bits(satp, 31) ||
+        (req->getFlags() & Request::PHYSICAL)) {
+        req->setPaddr(vaddr);
+        return NoFault;
+    }
+    uint16_t asid = bits(satp, 30, 22);
+    Addr vpn = vaddr >> PageShift;
+    Sv32Entry walked;
+    Sv32Entry *e = nullptr;
+    int reads = 0;
+    Fault fault = NoFault;
+    if (!functional) {
+        for (auto &t : sv32Tlb) {
+            if (t.valid && t.vpn == vpn && (t.global || t.asid == asid)) {
+                e = &t;
+                break;
+            }
+        }
+    }
+    if (e) {
+        e->lru = ++sv32Seq;
+        stats.sv32Hits++;
+    } else {
+        if (!functional)
+            stats.sv32Misses++;
+        fault = sv32Walk(tc, vaddr, satp, mode, walked, reads);
+        if (fault == NoFault) {
+            walked.asid = asid;
+            e = &walked;
+            if (!functional && !sv32Tlb.empty()) {
+                auto victim = std::min_element(sv32Tlb.begin(), sv32Tlb.end(),
+                    [](const Sv32Entry &a, const Sv32Entry &b) {
+                        return (a.valid ? a.lru : 0) < (b.valid ? b.lru : 0);
+                    });
+                walked.lru = ++sv32Seq;
+                *victim = walked;
+                e = &*victim;
+            }
+        }
+    }
+    if (fault == NoFault)
+        fault = sv32Check(*e, tc, vaddr, mode, pmode);
+    if (fault == NoFault)
+        req->setPaddr((e->ppn << PageShift) | (vaddr & PGMASK));
+    DPRINTF(TLB, "Sv32 %#x -> %#x (%s, %d reads)\n", vaddr,
+            fault == NoFault ? req->getPaddr() : 0,
+            fault == NoFault ? "ok" : fault->name(), reads);
+
+    if (reads && translation && !functional) {
+        Cycles lat(sv32MissLatency + sv32LevelLatency * reads);
+        delayed = true;
+        auto *ev = new EventFunctionWrapper([this, fault, req, tc, translation, mode]() {
+            Fault f = fault;
+            if (f == NoFault)
+                f = sv32Physical(req, tc, mode);
+            translation->finish(f, req, tc, mode);
+        }, name() + ".sv32Walk", true);
+        schedule(ev, tc->getCpuPtr()->clockEdge(lat));
+        return NoFault;
+    }
+    return fault;
+}
+
+void
+TLB::sv32Demap(Addr vaddr)
+{
+    // sfence.vma passes register values, not names, so 0 also means x0 and
+    // the ASID is not looked at: flushing more than asked is always allowed.
+    Addr vpn = (uint32_t)vaddr >> PageShift;
+    for (auto &e : sv32Tlb) {
+        if (vaddr == 0 || (e.mega ? (e.vpn >> 10) == (vpn >> 10) : e.vpn == vpn))
+            e.valid = false;
+    }
+}
+
 Fault
 TLB::translate(const RequestPtr &req, ThreadContext *tc,
                BaseMMU::Translation *translation, BaseMMU::Mode mode,
                bool &delayed, bool from_miss_queue)
 {
     delayed = false;
+
+    if (FullSystem && rv32Mode) {
+        Fault fault = sv32Translate(req, tc, translation, mode, delayed, false);
+        if (!delayed && fault == NoFault)
+            fault = sv32Physical(req, tc, mode);
+        return fault;
+    }
 
     if (FullSystem) {
         PrivilegeMode pmode = getMemPriv(tc, mode);
@@ -2957,6 +3153,12 @@ TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc,
 {
     const Addr vaddr = req->getVaddr();
     Addr paddr = vaddr;
+
+    if (FullSystem && rv32Mode) {
+        bool delayed;
+        Fault fault = sv32Translate(req, tc, nullptr, mode, delayed, true);
+        return fault != NoFault ? fault : sv32Physical(req, tc, mode);
+    }
 
     if (FullSystem) {
         MMU *mmu = static_cast<MMU *>(tc->getMMUPtr());
@@ -3183,7 +3385,10 @@ TLB::TlbStats::TlbStats(statistics::Group *parent)
                "Total TLB (read and write) misses", readMisses + writeMisses),
       ADD_STAT(accesses, statistics::units::Count::get(),
                "Total TLB (read and write) accesses",
-               readAccesses + writeAccesses)
+               readAccesses + writeAccesses),
+      ADD_STAT(sv32Hits, statistics::units::Count::get(), "RV32 Sv32 TLB hits"),
+      ADD_STAT(sv32Misses, statistics::units::Count::get(), "RV32 Sv32 TLB misses"),
+      ADD_STAT(sv32WalkReads, statistics::units::Count::get(), "RV32 Sv32 PTE reads")
 {
     l2tlbRemove
         .init(L_L2SUM)

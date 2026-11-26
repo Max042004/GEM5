@@ -48,6 +48,9 @@ def bitfield FUNCT7 <31:25>;
 def bitfield SRTYPE <30>;
 def bitfield SHAMT5 <24:20>;
 def bitfield SHAMT6 <25:20>;
+def bitfield SHAMT6BIT5 <25>;
+// RV32 decode (ExtMachInst.rv32)
+def bitfield RV32 <62>;
 
 // I-Type
 def bitfield IMM12  <31:20>;
