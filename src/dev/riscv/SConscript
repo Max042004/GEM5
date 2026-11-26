@@ -42,6 +42,7 @@ SimObject('RiscvVirtIOMMIO.py', sim_objects=['RiscvMmioVirtIO'],
     tags='riscv isa')
 SimObject('NemuMMC.py', sim_objects=['NemuMMC'], tags='riscv isa')
 SimObject('NemuPlic.py', sim_objects=['NemuPlic'], tags='riscv isa')
+SimObject('TohostMonitor.py', sim_objects=['TohostMonitor'], tags='riscv isa')
 
 DebugFlag('Clint', tags='riscv isa')
 DebugFlag('Lint', tags='riscv isa')
@@ -63,3 +64,4 @@ Source('rtc.cc', tags='riscv isa')
 Source('vio_mmio.cc', tags='riscv isa')
 Source('nemu_mmc.cc', tags='riscv isa')
 Source('nemu_plic.cc', tags='riscv isa')
+Source('tohost_monitor.cc', tags='riscv isa')
